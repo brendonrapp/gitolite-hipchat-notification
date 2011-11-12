@@ -1,0 +1,45 @@
+#! /usr/bin/env ruby
+
+require 'rubygems'
+require 'hipchat-api'
+require 'yaml'
+require 'time'
+
+config = YAML::load(File.open(File.join(File.dirname(__FILE__), 'config.yml')))
+
+chat = HipChat::API.new(config['hipchat_token'])
+repository = config['repository'] ||= File.basename(Dir.getwd, ".git")
+exit if config['exclude_repos'].include?(repository)
+
+url = "#{config['gitweb_url']}/#{repository}.git/commit/" unless config['use_url'] == false
+GIT = `which git`.strip
+
+# Read in latest commit hash from log file, if it exists 
+log = File.join(File.dirname(__FILE__), "hipchat-notification.log")
+if File.exist?(log)
+  last_revision = File.open(log) { |f| f.read.strip }
+  commit_log = `#{GIT} log #{last_revision}..HEAD --reverse`
+  commits = commit_log.split("\n\ncommit ")
+else
+  commit_log = `#{GIT} log -n 1`
+  commits = commit_log.split("commit ")
+end
+
+revision = ""
+# Read git-log and parse commits into chat message
+if commits.any?
+  message = "<strong>#{repository}</strong> has been pushed commits to <strong>master</strong>:<br>"
+  commits.each do |com|
+    unless com.empty?
+      revision = com[/([a-f0-9]{40})/]
+      commit_author  = `#{GIT} show --pretty=format:"%an" #{revision} | sed q`.chomp 
+      commit_msg     = `#{GIT} show --pretty=format:"%s" #{revision}  | sed q`.chomp
+      message += "- (<a href=\"#{url + revision}\">#{revision[0,6]}</a>) #{commit_author}: #{commit_msg}<br>"
+    end
+  end
+  # Record last revision to log
+  File.open(log, "w+") { |f| f.write revision }
+end
+
+# Speak!
+chat.rooms_message(config['hipchat_room_id'], config['hipchat_name'], message, notify = 0)

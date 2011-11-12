@@ -1,0 +1,8 @@
+hipchat_token: '<token>'
+hipchat_room_id: '<room>'
+hipchat_name: '<name>'
+gitweb_url: 'http://my-gitweb-url.com'  # Must use "pretty" paths
+exclude_repos:
+  - gitolite-admin
+  - repo-2
+  - repo-3

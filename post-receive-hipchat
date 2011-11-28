@@ -7,6 +7,9 @@ require 'time'
 
 config = YAML::load(File.open(File.join(File.dirname(__FILE__), 'config.yml')))
 
+ref = STDIN.read.split(' ')
+branch = ref.split('/')[2]
+
 chat = HipChat::API.new(config['hipchat_token'])
 repository = config['repository'] ||= File.basename(Dir.getwd, ".git")
 exit if config['exclude_repos'].include?(repository)
@@ -18,17 +21,17 @@ GIT = `which git`.strip
 log = File.join(File.dirname(__FILE__), "hipchat-notification.log")
 if File.exist?(log)
   last_revision = File.open(log) { |f| f.read.strip }
-  commit_log = `#{GIT} log #{last_revision}..HEAD --reverse`
+  commit_log = `#{GIT} log --branches #{last_revision}..HEAD --reverse`
   commits = commit_log.split("\n\ncommit ")
 else
-  commit_log = `#{GIT} log -n 1`
+  commit_log = `#{GIT} log --branches -n 1`
   commits = commit_log.split("commit ")
 end
 
 revision = ""
 # Read git-log and parse commits into chat message
 if commits.any?
-  message = "<strong>#{repository}</strong> has been pushed commits to <strong>master</strong>:<br>"
+  message = "<strong>#{repository}</strong> has been pushed commits to <strong>#{branch}</strong>:<br>"
   commits.each do |com|
     unless com.empty?
       revision = com[/([a-f0-9]{40})/]

@@ -8,7 +8,7 @@ require 'time'
 config = YAML::load(File.open(File.join(File.dirname(__FILE__), 'config.yml')))
 
 ref = STDIN.read.split(' ')
-branch = ref.split('/')[2]
+branch = ref[2].split('/')[2]
 
 chat = HipChat::API.new(config['hipchat_token'])
 repository = config['repository'] ||= File.basename(Dir.getwd, ".git")

@@ -7,41 +7,61 @@ require 'time'
 
 config = YAML::load(File.open(File.join(File.dirname(__FILE__), 'config.yml')))
 
-ref = STDIN.read.split(' ')
-branch = ref[2].split('/')[2]
-
-chat = HipChat::API.new(config['hipchat_token'])
+# Exit if pushing to repo listed for exclusion in config file
 repository = config['repository'] ||= File.basename(Dir.getwd, ".git")
 exit if config['exclude_repos'].include?(repository)
+
+message = ""
+branches = []
+tags = []
+STDIN.read.each do |line|
+  oldrev, newrev, ref = line.split(' ')
+  parsed_ref = ref.split('/')
+  
+  if parsed_ref[1] == "heads"
+    revhash = { :oldrev => oldrev, :newrev => newrev, :branch => parsed_ref[2] }
+    branches.push revhash
+  elsif parsed_ref[1] == "tags"
+    taghash = { :tag => parsed_ref[2], :rev => newrev }
+    tags.push taghash
+  else
+    message += "Git notification hook error: pushed something that's not a head or tag"
+    # Any other possibilities?
+  end
+end
+
+chat = HipChat::API.new(config['hipchat_token'])
+
 
 url = "#{config['gitweb_url']}/#{repository}.git/commit/" unless config['use_url'] == false
 GIT = `which git`.strip
 
-# Read in latest commit hash from log file, if it exists 
-log = File.join(File.dirname(__FILE__), "hipchat-notification.log")
-if File.exist?(log)
-  last_revision = File.open(log) { |f| f.read.strip }
-  commit_log = `#{GIT} log --branches #{last_revision}..HEAD --reverse`
-  commits = commit_log.split("\n\ncommit ")
-else
-  commit_log = `#{GIT} log --branches -n 1`
-  commits = commit_log.split("commit ")
-end
-
-revision = ""
 # Read git-log and parse commits into chat message
-if commits.any?
-  message = "<strong>#{repository}</strong> has been pushed commits to <strong>#{branch}</strong>:<br>"
-  commits.each do |com|
-    unless com.empty?
+if branches.any?
+  message += "<strong>#{repository}</strong> has been pushed commits:<br>"
+  branches.each do |b|
+    
+    message += "To branch <strong>#{b[:branch]}</strong>:<br>"
+    # Generate array of all new commits
+    commit_log = `#{GIT} log --branches=#{b[:branch]} #{b[:oldrev]}..#{b[:newrev]} --reverse`
+    commits = commit_log.split("\n\ncommit ")
+
+    commits.each do |com| 
       revision = com[/([a-f0-9]{40})/]
       commit_author  = `#{GIT} show --pretty=format:"%an" #{revision} | sed q`.chomp 
       commit_msg     = `#{GIT} show --pretty=format:"%s" #{revision}  | sed q`.chomp
-      message += "- (<a href=\"#{url + revision}\">#{revision[0,6]}</a>) #{commit_author}: #{commit_msg}<br>"
+      message += "&nbsp;&nbsp;- (<a href=\"#{url + revision}\">#{revision[0,6]}</a>) #{commit_author}: #{commit_msg}<br>"
     end
   end
-  # Record last revision to log
-  File.open(log, "w+") { |f| f.write revision }
+end
+
+if tags.any?
+  message += "<strong>#{repository}</strong> has been pushed tags:<br>"
+  tags.each do |t|
+    message += "Tag <strong>#{t[:tag]}</strong>:<br>"
+    tag_msg = `#{GIT} show #{t[:tag]} | sed -n 5p`.chomp
+    message += "&nbsp;&nbsp;- (<a href=\"#{url + t[:rev]}\">#{t[:rev][0,6]}</a>) #{tag_msg}<br>"
+  end
 end
 
 # Speak!

@@ -14,10 +14,11 @@ exit if config['exclude_repos'].include?(repository)
 message = ""
 branches = []
 tags = []
+
+# Loop through STDIN, sort into branches and tags
 STDIN.read.each do |line|
   oldrev, newrev, ref = line.split(' ')
   parsed_ref = ref.split('/')
-  
   if parsed_ref[1] == "heads"
     revhash = { :oldrev => oldrev, :newrev => newrev, :branch => parsed_ref[2] }
     branches.push revhash
@@ -25,18 +26,15 @@ STDIN.read.each do |line|
     taghash = { :tag => parsed_ref[2], :rev => newrev }
     tags.push taghash
   else
-    message += "Git notification hook error: pushed something that's not a head or tag"
-    # Any other possibilities?
+    # ignore
   end
 end
 
 chat = HipChat::API.new(config['hipchat_token'])
-
-
 url = "#{config['gitweb_url']}/#{repository}.git/commit/" unless config['use_url'] == false
 GIT = `which git`.strip
 
-# Read git-log and parse commits into chat message
+# Loop through ref/heads/* and print commit messages
 if branches.any?
   message += "<strong>#{repository}</strong> has been pushed commits:<br>"
   branches.each do |b|
@@ -50,17 +48,28 @@ if branches.any?
       revision = com[/([a-f0-9]{40})/]
       commit_author  = `#{GIT} show --pretty=format:"%an" #{revision} | sed q`.chomp 
       commit_msg     = `#{GIT} show --pretty=format:"%s" #{revision}  | sed q`.chomp
-      message += "&nbsp;&nbsp;- (<a href=\"#{url + revision}\">#{revision[0,6]}</a>) #{commit_author}: #{commit_msg}<br>"
+      if config['use_url']
+        rev_info = "<a href=\"#{url + revision}\">#{revision[0,6]}</a>"
+      else
+        rev_info = revision[0,6]
+      end
+      message += "&nbsp;&nbsp;- (#{rev_info}) #{commit_author}: #{commit_msg}<br>"
     end
   end
 end
 
+# Loop through ref/tags/* and print tag names & annotations
 if tags.any?
   message += "<strong>#{repository}</strong> has been pushed tags:<br>"
   tags.each do |t|
     message += "Tag <strong>#{t[:tag]}</strong>:<br>"
     tag_msg = `#{GIT} show #{t[:tag]} | sed -n 5p`.chomp
-    message += "&nbsp;&nbsp;- (<a href=\"#{url + t[:rev]}\">#{t[:rev][0,6]}</a>) #{tag_msg}<br>"
+    if config['use_url']
+      rev_info = "<a href=\"#{url + t[:rev]}\">#{t[:rev][0,6]}</a>"
+    else
+      rev_info = t[:rev][0,6]
+    end
+    message += "&nbsp;&nbsp;- (#{rev_info}) #{tag_msg}<br>"
   end
 end
 
